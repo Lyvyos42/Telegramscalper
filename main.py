@@ -75,14 +75,17 @@ class TelegramNotifier:
             entry = trade_plan['entry_price']
             sl = trade_plan['stop_loss']
             timeframe = trade_plan['timeframe']
+            stop_pips = trade_plan.get('stop_pips', 0)
             
             # Helper to get direction content
             if "LONG" in direction.upper() or "BUY" in direction.upper():
                 direction_emoji = "🟢"
-                direction_text = "BUY/LONG"
+                direction_text = "BUY / LONG"  # Added spaces for readability
+                header_emoji = "🚀"
             else:
                 direction_emoji = "🔴"
-                direction_text = "SELL/SHORT"
+                direction_text = "SELL / SHORT"
+                header_emoji = "📉"
             
             # Format numbers based on symbol type
             symbol_upper = symbol.upper().replace("/", "")
@@ -99,25 +102,32 @@ class TelegramNotifier:
             entry_fmt = fmt_price(entry)
             sl_fmt = fmt_price(sl)
             
-            # Construct TP block
+            # Construct TP block with R:R info
             tp_block = ""
-            for tp in trade_plan.get('take_profits', []):
+            emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
+            for i, tp in enumerate(trade_plan.get('take_profits', [])):
                 tp_price_fmt = fmt_price(tp['price'])
-                tp_block += f"<b>🎯 Take Profit {tp['level']}:</b> <code>{tp_price_fmt}</code>\n"
-            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+                emoji = emojis[i] if i < len(emojis) else f"{i+1}."
+                rr = tp.get('rr_ratio', '?')
+                tp_block += f"{emoji} <code>{tp_price_fmt}</code> (Risk: {rr}R)\n"
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M UTC')
             
+            # Determine pips label
+            if any(x in symbol_upper for x in ["BTC", "ETH", "SOL", "XAU", "XAG"]):
+                risk_label = f"${stop_pips}"
+            else:
+                risk_label = f"{stop_pips} pips"
             message = f"""
-<b>{direction_emoji} TRADE SIGNAL {direction_emoji}</b>
-━━━━━━━━━━━━━━━━━━━━
-<b>📍 Pair:</b> {symbol}
-<b>📊 Direction:</b> <b>{direction_text}</b>
-<b>⏰ Timeframe:</b> {timeframe}
-<b>💰 Entry Price:</b> <code>{entry_fmt}</code>
-<b>🛑 Stop Loss:</b> <code>{sl_fmt}</code>
+<b>{header_emoji} SIGNAL: {symbol}</b>
+{direction_emoji} <b>{direction_text}</b>
+<b>Entry:</b> <code>{entry_fmt}</code>
+<b>Stop Loss:</b> <code>{sl_fmt}</code>
+<i>(Risk: {risk_label})</i>
+<b>👇 Take Profits:</b>
 {tp_block}
-<b>⏱️ Signal Time:</b> {current_time}
-━━━━━━━━━━━━━━━━━━━━
-<b>#TradeSignal #{symbol.replace('/', '')} #{direction}</b>
+<b>Timeframe:</b> {timeframe}
+<i>{current_time}</i>
+#{symbol.replace('/', '')} #{direction.split(' ')[0]}
 """
             return self.send_message(message)
         except Exception as e:
