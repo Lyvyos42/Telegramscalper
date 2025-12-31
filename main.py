@@ -358,9 +358,17 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if request.method == 'POST':
-        data = request.json
+        # Force parsing as JSON even if Content-Type header is missing or wrong
+        # TradingView sometimes sends text/plain
+        data = request.get_json(force=True, silent=True)
+        
         if not data:
-            return jsonify({"error": "No JSON data received"}), 400
+            # Fallback: try to parse raw data string manually if get_json fails
+            try:
+                import json
+                data = json.loads(request.data.decode('utf-8'))
+            except Exception:
+                return jsonify({"error": "Invalid JSON format"}), 400
             
         success = bot.process_webhook(data)
         
