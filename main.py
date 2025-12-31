@@ -1,3 +1,7 @@
+
+main.py
+
+
 import time
 import logging
 import requests
@@ -358,6 +362,8 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if request.method == 'POST':
+        logger.info(f"RAW PAYLOAD: {request.data}")
+        logger.info(f"ContentType: {request.headers.get('Content-Type')}")
         # Force parsing as JSON even if Content-Type header is missing or wrong
         # TradingView sometimes sends text/plain
         data = request.get_json(force=True, silent=True)
