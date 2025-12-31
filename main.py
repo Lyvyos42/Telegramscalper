@@ -80,7 +80,7 @@ class TelegramNotifier:
             # Helper to get direction content
             if "LONG" in direction.upper() or "BUY" in direction.upper():
                 direction_emoji = "🟢"
-                direction_text = "BUY / LONG"  # Added spaces for readability
+                direction_text = "BUY / LONG"
                 header_emoji = "🚀"
             else:
                 direction_emoji = "🔴"
@@ -132,6 +132,39 @@ class TelegramNotifier:
             return self.send_message(message)
         except Exception as e:
             logger.error(f"Error creating trade signal message: {e}")
+            return False
+    def send_profit_update(self, symbol: str, action: str, price: float):
+        """Send TP hit notification"""
+        try:
+            # Determine TP Level
+            if "TP1" in action:
+                emoji = "💰"
+                level = "TP1"
+                comment = "First Target Hit!"
+            elif "TP2" in action:
+                emoji = "💰💰"
+                level = "TP2"
+                comment = "Second Target Hit! Move SL to Breakeven."
+            elif "TP3" in action:
+                emoji = "🚀🔥"
+                level = "TP3 (FULL)"
+                comment = "Final Target Hit! Trade Closed."
+            else:
+                emoji = "🔔"
+                level = "UPDATE"
+                comment = "Trade Update"
+            message = f"""
+<b>{emoji} PROFIT HIT: {symbol}</b>
+━━━━━━━━━━━━━━━━━━━━
+<b>🎯 Level:</b> {level}
+<b>💵 Price:</b> <code>{price}</code>
+<i>{comment}</i>
+━━━━━━━━━━━━━━━━━━━━
+#{symbol.replace('/', '')} #{level}
+"""
+            return self.send_message(message)
+        except Exception as e:
+            logger.error(f"Error creating profit update message: {e}")
             return False
 class DynamicRiskManager:
     """Dynamic risk management with REALISTIC calculations"""
@@ -304,6 +337,13 @@ class TradingBot:
             symbol = data.get('pair') or data.get('symbol') or "UNKNOWN"
             direction = data.get('action') or "UNKNOWN"
             
+            # CHECK FOR PROFIT UPDATES
+            if "TP" in direction or "_HIT" in direction:
+                logger.info(f"Processing Profit Update: {direction}")
+                price = float(data.get('price', 0))
+                if self.telegram:
+                    return self.telegram.send_profit_update(symbol, direction, price)
+                return False
             # Filter out non-entry signals if you only want entries
             if direction not in ["LONG", "SHORT", "BUY", "SELL"]:
                 logger.info(f"Ignoring non-entry signal: {direction}")
