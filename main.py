@@ -8,35 +8,23 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from flask import Flask, request, jsonify
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
 # Initialize Flask app
 app = Flask(__name__)
+
 class MarketType(Enum):
     FOREX = "FOREX"
     CRYPTO = "CRYPTO"
     COMMODITIES = "COMMODITIES"
     INDICES = "INDICES"
-class TimeFrame(Enum):
-    M1 = "1M"
-    M3 = "3M"
-    M5 = "5M"
-    M15 = "15M"
-    M30 = "30M"
-    H1 = "1H"
-    H4 = "4H"
-    D1 = "1D"
-@dataclass
-class MarketProfile:
-    """Market-specific volatility and characteristics"""
-    symbol: str
-    market_type: MarketType
-    spread: float
-    pip_value: float = 10.0
+
 class TelegramNotifier:
     """Handle Telegram notifications"""
     
@@ -58,233 +46,257 @@ class TelegramNotifier:
             
             response = requests.post(url, json=payload, timeout=10)
             if response.status_code == 200:
-                logger.info("Telegram message sent")
+                logger.info("✅ Telegram message sent successfully")
                 return True
             else:
-                logger.error(f"Failed to send Telegram message: {response.text}")
+                logger.error(f"❌ Failed to send Telegram message: {response.text}")
                 return False
         except Exception as e:
-            logger.error(f"Error sending Telegram message: {e}")
+            logger.error(f"❌ Error sending Telegram message: {e}")
             return False
     
-    def send_trade_signal(self, trade_plan: Dict):
-        """Send trade signal to Telegram"""
+    def send_elite_signal(self, data: Dict):
+        """Send Elite Edition signal to Telegram"""
         try:
-            symbol = trade_plan['symbol']
-            direction = trade_plan['direction']
-            entry = trade_plan['entry_price']
-            sl = trade_plan['stop_loss']
-            timeframe = trade_plan['timeframe']
-            stop_pips = trade_plan.get('stop_pips', 0)
+            # Extract all data
+            symbol = data.get('symbol', 'UNKNOWN')
+            direction = data.get('direction', 'UNKNOWN')
+            signal_type = data.get('signal_type', 'UNKNOWN')
+            pattern = data.get('pattern', 'UNKNOWN')
+            entry = data.get('entry', 0)
+            sl = data.get('stop_loss', 0)
+            tp1 = data.get('tp1', 0)
+            tp2 = data.get('tp2', 0)
+            tp3 = data.get('tp3', 0)
+            score = data.get('score', 0)
+            mode = data.get('mode', 'UNKNOWN')
+            session = data.get('session', 'UNKNOWN')
+            timeframe = data.get('timeframe', '?')
             
-            # Helper to get direction content
-            if "LONG" in direction.upper() or "BUY" in direction.upper():
+            # Elite features
+            bubble_detected = data.get('bubble_detected', False)
+            bubble_strength = data.get('bubble_strength', 0)
+            exhaustion_detected = data.get('exhaustion_detected', False)
+            htf_trend = data.get('htf_trend', 'UNKNOWN')
+            balanced_mode = data.get('balanced_mode', False)
+            
+            # Direction emoji and text
+            if direction == "LONG":
                 direction_emoji = "🟢"
-                direction_text = "BUY / LONG"
+                direction_text = "LONG / BUY"
                 header_emoji = "🚀"
             else:
                 direction_emoji = "🔴"
-                direction_text = "SELL / SHORT"
+                direction_text = "SHORT / SELL"
                 header_emoji = "📉"
             
-            # Format numbers based on symbol type
-            symbol_upper = symbol.upper().replace("/", "")
+            # Signal type emoji
+            if signal_type == "REVERSAL":
+                type_emoji = "🔄"
+            else:
+                type_emoji = "➡️"
             
+            # Bubble strength indicator
+            if bubble_strength == 3:
+                bubble_text = "⚡⚡⚡ LEVEL 3 (INSTITUTIONAL!)"
+                bubble_color = "🔥"
+            elif bubble_strength == 2:
+                bubble_text = "⚡⚡ LEVEL 2 (STRONG)"
+                bubble_color = "✨"
+            elif bubble_strength == 1:
+                bubble_text = "⚡ LEVEL 1"
+                bubble_color = "💫"
+            else:
+                bubble_text = "No Bubble"
+                bubble_color = ""
+            
+            # Exhaustion indicator
+            if exhaustion_detected:
+                exhaustion_text = "⚠️ DETECTED (High Confidence!)"
+            else:
+                exhaustion_text = "None"
+            
+            # Score color
+            if score >= 95:
+                score_emoji = "🔥🔥🔥"
+                quality = "EXCEPTIONAL"
+            elif score >= 90:
+                score_emoji = "🔥🔥"
+                quality = "EXCELLENT"
+            elif score >= 85:
+                score_emoji = "🔥"
+                quality = "GOOD"
+            else:
+                score_emoji = "✅"
+                quality = "OK"
+            
+            # Mode indicator
+            mode_text = "⚖️ BALANCED" if balanced_mode else "⚡ AGGRESSIVE"
+            
+            # Format numbers based on symbol
             def fmt_price(price):
-                if any(x in symbol_upper for x in ["XAU", "XAG"]):
+                if "XAU" in symbol or "XAG" in symbol:
                     return f"{price:.2f}"
-                elif any(x in symbol_upper for x in ["BTC", "ETH", "SOL"]):
+                elif "BTC" in symbol or "ETH" in symbol:
                     return f"{price:.2f}"
-                elif "JPY" in symbol_upper:
+                elif "JPY" in symbol:
                     return f"{price:.3f}"
                 else:
                     return f"{price:.5f}"
+            
             entry_fmt = fmt_price(entry)
             sl_fmt = fmt_price(sl)
+            tp1_fmt = fmt_price(tp1)
+            tp2_fmt = fmt_price(tp2)
+            tp3_fmt = fmt_price(tp3)
             
-            # Construct TP block with R:R info
-            tp_block = ""
-            emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
-            for i, tp in enumerate(trade_plan.get('take_profits', [])):
-                tp_price_fmt = fmt_price(tp['price'])
-                emoji = emojis[i] if i < len(emojis) else f"{i+1}."
-                rr = tp.get('rr_ratio', '?')
-                tp_block += f"{emoji} <code>{tp_price_fmt}</code> (Risk: {rr}R)\n"
+            # Calculate R:R
+            if direction == "LONG":
+                risk = entry - sl
+            else:
+                risk = sl - entry
+            
+            if risk > 0:
+                rr1 = (abs(tp1 - entry) / risk)
+                rr2 = (abs(tp2 - entry) / risk)
+                rr3 = (abs(tp3 - entry) / risk)
+            else:
+                rr1 = rr2 = rr3 = 0
+            
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M UTC')
             
-            # Determine pips label
-            if any(x in symbol_upper for x in ["BTC", "ETH", "SOL", "XAU", "XAG"]):
-                risk_label = f"${stop_pips}"
-            else:
-                risk_label = f"{stop_pips} pips"
+            # Build message
             message = f"""
-<b>{header_emoji} SIGNAL: {symbol}</b>
+<b>⚡ NEURAL ICC AI 2026 • ELITE EDITION</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{header_emoji} <b>{symbol} • {timeframe}</b>
 {direction_emoji} <b>{direction_text}</b>
-<b>Entry:</b> <code>{entry_fmt}</code>
-<b>Stop Loss:</b> <code>{sl_fmt}</code>
-<i>(Risk: {risk_label})</i>
-<b>👇 Take Profits:</b>
-{tp_block}
-<b>Timeframe:</b> {timeframe}
-<i>{current_time}</i>
-#{symbol.replace('/', '')} #{direction.split(' ')[0]}
+{type_emoji} <b>{signal_type}</b> • Pattern: {pattern}
+
+<b>📊 ENTRY DETAILS</b>
+├ Entry: <code>{entry_fmt}</code>
+├ Stop Loss: <code>{sl_fmt}</code>
+└ Risk: <code>{abs(entry - sl):.2f}</code> points
+
+<b>🎯 TAKE PROFITS</b>
+1️⃣ TP1: <code>{tp1_fmt}</code> ({rr1:.1f}R)
+2️⃣ TP2: <code>{tp2_fmt}</code> ({rr2:.1f}R)
+3️⃣ TP3: <code>{tp3_fmt}</code> ({rr3:.1f}R)
+
+<b>🧠 AI ANALYSIS</b>
+├ Score: {score_emoji} <b>{score}/100</b> ({quality})
+├ Mode: {mode_text}
+├ Session: {session}
+└ HTF Trend: {htf_trend}
+
+<b>💎 SMART MONEY</b>
+├ Bubble: {bubble_color} {bubble_text}
+└ Exhaustion: {exhaustion_text}
+
+<i>🕐 {current_time}</i>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#{symbol.replace('/', '')} #{direction} #{mode}
 """
+            
             return self.send_message(message)
+            
         except Exception as e:
-            logger.error(f"Error creating trade signal message: {e}")
+            logger.error(f"❌ Error creating Elite signal message: {e}")
             return False
-    def send_profit_update(self, symbol: str, action: str, price: float):
+    
+    def send_tp_hit(self, data: Dict):
         """Send TP hit notification"""
         try:
-            # Determine TP Level
-            if "TP1" in action:
+            symbol = data.get('symbol', 'UNKNOWN')
+            direction = data.get('direction', 'UNKNOWN')
+            level = data.get('level', 'UNKNOWN')
+            price = data.get('price', 0)
+            
+            # Determine level details
+            if "TP1" in level:
                 emoji = "💰"
-                level = "TP1"
-                comment = "First Target Hit!"
-            elif "TP2" in action:
+                level_text = "TP1"
+                comment = "First target hit! Consider moving SL to breakeven."
+            elif "TP2" in level:
                 emoji = "💰💰"
-                level = "TP2"
-                comment = "Second Target Hit! Move SL to Breakeven."
-            elif "TP3" in action:
+                level_text = "TP2"
+                comment = "Second target hit! Trail your stop loss."
+            elif "TP3" in level:
                 emoji = "🚀🔥"
-                level = "TP3 (FULL)"
-                comment = "Final Target Hit! Trade Closed."
+                level_text = "TP3 (FULL TARGET)"
+                comment = "Final target hit! Exceptional trade!"
             else:
-                emoji = "🔔"
-                level = "UPDATE"
-                comment = "Trade Update"
+                emoji = "✅"
+                level_text = level
+                comment = "Target reached!"
+            
+            def fmt_price(price):
+                if "XAU" in symbol or "XAG" in symbol:
+                    return f"{price:.2f}"
+                elif "BTC" in symbol or "ETH" in symbol:
+                    return f"{price:.2f}"
+                elif "JPY" in symbol:
+                    return f"{price:.3f}"
+                else:
+                    return f"{price:.5f}"
+            
             message = f"""
 <b>{emoji} PROFIT HIT: {symbol}</b>
-━━━━━━━━━━━━━━━━━━━━
-<b>🎯 Level:</b> {level}
-<b>💵 Price:</b> <code>{price}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>🎯 Level:</b> {level_text}
+<b>{direction}</b> Position
+<b>💵 Price:</b> <code>{fmt_price(price)}</code>
+
 <i>{comment}</i>
-━━━━━━━━━━━━━━━━━━━━
-#{symbol.replace('/', '')} #{level}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#{symbol.replace('/', '')} #{level_text}
 """
             return self.send_message(message)
+            
         except Exception as e:
-            logger.error(f"Error creating profit update message: {e}")
+            logger.error(f"❌ Error creating TP hit message: {e}")
             return False
-class DynamicRiskManager:
-    """Dynamic risk management with REALISTIC calculations"""
     
-    def __init__(self):
-        # REALISTIC stop loss in pips/points for each timeframe
-        self.timeframe_stops = {
-            TimeFrame.M1: {"pips": 2, "crypto_points": 5, "gold_points": 2},
-            TimeFrame.M3: {"pips": 3, "crypto_points": 10, "gold_points": 3},
-            TimeFrame.M5: {"pips": 5, "crypto_points": 15, "gold_points": 5},
-            TimeFrame.M15: {"pips": 8, "crypto_points": 25, "gold_points": 8},
-            TimeFrame.M30: {"pips": 12, "crypto_points": 40, "gold_points": 12},
-            TimeFrame.H1: {"pips": 15, "crypto_points": 60, "gold_points": 15},
-            TimeFrame.H4: {"pips": 25, "crypto_points": 100, "gold_points": 25},
-            TimeFrame.D1: {"pips": 40, "crypto_points": 200, "gold_points": 40}
-        }
-        
-        # Risk/Reward ratios for each timeframe
-        self.timeframe_rr_ratios = {
-            TimeFrame.M1: [1.0, 1.5, 2.0],
-            TimeFrame.M3: [1.0, 2.0, 3.0],
-            TimeFrame.M5: [1.5, 2.5, 3.5],
-            TimeFrame.M15: [2.0, 3.0, 4.0],
-            TimeFrame.M30: [2.0, 3.0, 4.0],
-            TimeFrame.H1: [2.5, 3.5, 5.0],
-            TimeFrame.H4: [3.0, 4.0, 6.0],
-            TimeFrame.D1: [3.0, 5.0, 8.0]
-        }
-    
-    def get_stop_distance(self, symbol: str, timeframe: TimeFrame) -> float:
-        """Get realistic stop distance based on symbol and timeframe"""
-        symbol_upper = symbol.upper().replace("/", "")
-        config = self.timeframe_stops.get(timeframe, self.timeframe_stops[TimeFrame.M5])
-        
-        if "BTC" in symbol_upper or "ETH" in symbol_upper or "SOL" in symbol_upper:
-            return config["crypto_points"]
-        elif "XAU" in symbol_upper or "XAG" in symbol_upper:
-            return config["gold_points"]
-        else:
-            return config["pips"]
-    
-    def calculate_pip_size(self, symbol: str) -> float:
-        symbol_upper = symbol.upper().replace("/", "")
-        
-        if "JPY" in symbol_upper:
-            return 0.01
-        elif "XAU" in symbol_upper or "XAG" in symbol_upper:
-            return 0.01
-        elif "BTC" in symbol_upper:
-            return 1.0
-        elif "ETH" in symbol_upper:
-            return 0.1
-        elif "SOL" in symbol_upper:
-            return 0.01
-        else:
-            return 0.0001
-    
-    def calculate_stop_loss(self, 
-                           symbol: str,
-                           entry_price: float,
-                           direction: str,
-                           timeframe: TimeFrame,
-                           market_type: MarketType) -> Dict:
-        
-        stop_distance_units = self.get_stop_distance(symbol, timeframe)
-        
-        # Determine actual price distance
-        if market_type == MarketType.CRYPTO or market_type == MarketType.COMMODITIES or market_type == MarketType.INDICES:
-            stop_price_distance = stop_distance_units
-            stop_pips = stop_distance_units 
-        else:
-            pip_size = self.calculate_pip_size(symbol)
-            stop_price_distance = stop_distance_units * pip_size
-            stop_pips = stop_distance_units
-        
-        if "SHORT" in direction.upper() or "SELL" in direction.upper():
-            stop_price = entry_price + stop_price_distance
-        else:
-            stop_price = entry_price - stop_price_distance
-        
-        return {
-            "stop_loss": stop_price,
-            "stop_pips": round(stop_pips, 1),
-            "stop_distance": stop_price_distance
-        }
-    
-    def calculate_take_profits(self,
-                              entry_price: float,
-                              stop_pips: float,
-                              direction: str,
-                              timeframe: TimeFrame,
-                              symbol: str,
-                              market_type: MarketType) -> List[Dict]:
-        
-        rr_ratios = self.timeframe_rr_ratios.get(timeframe, [1.0, 2.0, 3.0])
-        
-        tp_levels = []
-        for i, ratio in enumerate(rr_ratios):
-            if market_type in [MarketType.CRYPTO, MarketType.COMMODITIES, MarketType.INDICES]:
-                tp_distance = stop_pips * ratio
-            else:
-                pip_size = self.calculate_pip_size(symbol)
-                tp_distance = stop_pips * ratio * pip_size
+    def send_sl_hit(self, data: Dict):
+        """Send SL hit notification"""
+        try:
+            symbol = data.get('symbol', 'UNKNOWN')
+            direction = data.get('direction', 'UNKNOWN')
+            price = data.get('price', 0)
             
-            if "SHORT" in direction.upper() or "SELL" in direction.upper():
-                tp_price = entry_price - tp_distance
-            else:
-                tp_price = entry_price + tp_distance
+            def fmt_price(price):
+                if "XAU" in symbol or "XAG" in symbol:
+                    return f"{price:.2f}"
+                elif "BTC" in symbol or "ETH" in symbol:
+                    return f"{price:.2f}"
+                elif "JPY" in symbol:
+                    return f"{price:.3f}"
+                else:
+                    return f"{price:.5f}"
             
-            tp_levels.append({
-                "level": i + 1,
-                "price": tp_price,
-                "pips": round(stop_pips * ratio, 1),
-                "rr_ratio": ratio,
-                "distance": tp_distance
-            })
-        
-        return tp_levels
+            message = f"""
+<b>❌ STOP LOSS HIT: {symbol}</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>Direction:</b> {direction}
+<b>💵 Price:</b> <code>{fmt_price(price)}</code>
+
+<i>Trade closed. Wait for next setup.</i>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#{symbol.replace('/', '')} #SL
+"""
+            return self.send_message(message)
+            
+        except Exception as e:
+            logger.error(f"❌ Error creating SL hit message: {e}")
+            return False
+
 class TradingBot:
-    """Trading bot with Webhook Support"""
+    """Elite Trading Bot with Webhook Support"""
     
     def __init__(self):
         # Read credentials from environment variables
@@ -292,149 +304,95 @@ class TradingBot:
         self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
         
         if not self.telegram_token or not self.chat_id:
-            logger.warning("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set! Notifications will fail.")
+            logger.warning("⚠️ TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set! Notifications will fail.")
         else:
             self.telegram = TelegramNotifier(self.telegram_token, self.chat_id)
-            
-        self.risk_manager = DynamicRiskManager()
-        self.market_profiles = self.initialize_market_profiles()
+            logger.info("✅ Telegram notifier initialized")
     
-    def initialize_market_profiles(self) -> Dict[str, MarketProfile]:
-        return {
-            "EURUSD": MarketProfile("EURUSD", MarketType.FOREX, 0.0001, 10.0),
-            "GBPUSD": MarketProfile("GBPUSD", MarketType.FOREX, 0.00012, 10.0),
-            "USDJPY": MarketProfile("USDJPY", MarketType.FOREX, 0.01, 9.27),
-            "EURCAD": MarketProfile("EURCAD", MarketType.FOREX, 0.00015, 7.5),
-            "BTCUSD": MarketProfile("BTCUSD", MarketType.CRYPTO, 5.0, 1.0),
-            "ETHUSD": MarketProfile("ETHUSD", MarketType.CRYPTO, 0.5, 1.0),
-            "SOLUSD": MarketProfile("SOLUSD", MarketType.CRYPTO, 0.1, 1.0),
-            "XAUUSD": MarketProfile("XAUUSD", MarketType.COMMODITIES, 0.5, 1.0),
-        }
-    
-    def get_market_profile(self, symbol: str) -> MarketProfile:
-        symbol_clean = symbol.upper().replace("/", "")
-        
-        # Check explicit first
-        if symbol_clean in self.market_profiles:
-            return self.market_profiles[symbol_clean]
-        
-        # Auto-detect
-        if any(crypto in symbol_clean for crypto in ["BTC", "ETH", "SOL", "DOGE", "ADA"]):
-            return MarketProfile(symbol_clean, MarketType.CRYPTO, 1.0, 1.0)
-        elif "XAU" in symbol_clean or "XAG" in symbol_clean or "OIL" in symbol_clean:
-            return MarketProfile(symbol_clean, MarketType.COMMODITIES, 0.5, 1.0)
-        elif "US30" in symbol_clean or "NAS100" in symbol_clean or "SPX" in symbol_clean:
-            return MarketProfile(symbol_clean, MarketType.INDICES, 1.0, 1.0)
-        else:
-            return MarketProfile(symbol_clean, MarketType.FOREX, 0.0001, 10.0)
-            
     def process_webhook(self, data: Dict) -> bool:
-        """Process incoming webhook data"""
+        """Process incoming webhook from Elite indicator"""
         try:
-            logger.info(f"Received webhook data: {data}")
+            logger.info(f"📥 Received webhook data: {data}")
             
-            # Extract standard fields
-            symbol = data.get('pair') or data.get('symbol') or "UNKNOWN"
-            direction = data.get('action') or "UNKNOWN"
+            # Check event type
+            event = data.get('event', 'UNKNOWN')
             
-            # CHECK FOR PROFIT UPDATES
-            if "TP" in direction or "_HIT" in direction:
-                logger.info(f"Processing Profit Update: {direction}")
-                price = float(data.get('price', 0))
+            if event == 'NEW_TRADE':
+                logger.info("🚀 Processing NEW_TRADE signal")
                 if self.telegram:
-                    return self.telegram.send_profit_update(symbol, direction, price)
-                return False
-            # Filter out non-entry signals if you only want entries
-            if direction not in ["LONG", "SHORT", "BUY", "SELL"]:
-                logger.info(f"Ignoring non-entry signal: {direction}")
-                return False
-                
-            entry_price = float(data.get('price', 0))
-            timeframe_str = data.get('timeframe', "5M")
+                    return self.telegram.send_elite_signal(data)
+                else:
+                    logger.error("❌ Telegram not initialized")
+                    return False
             
-            # Map timeframe
-            tf_map = {
-                "1M": TimeFrame.M1, "3M": TimeFrame.M3, "5M": TimeFrame.M5,
-                "15M": TimeFrame.M15, "30M": TimeFrame.M30, "1H": TimeFrame.H1,
-                "4H": TimeFrame.H4, "1D": TimeFrame.D1
-            }
-            timeframe = tf_map.get(timeframe_str.upper(), TimeFrame.M5)
+            elif event == 'TP_HIT':
+                logger.info("💰 Processing TP_HIT notification")
+                if self.telegram:
+                    return self.telegram.send_tp_hit(data)
+                else:
+                    logger.error("❌ Telegram not initialized")
+                    return False
             
-            # Calculate plan
-            market_profile = self.get_market_profile(symbol)
+            elif event == 'SL_HIT':
+                logger.info("❌ Processing SL_HIT notification")
+                if self.telegram:
+                    return self.telegram.send_sl_hit(data)
+                else:
+                    logger.error("❌ Telegram not initialized")
+                    return False
             
-            stop_data = self.risk_manager.calculate_stop_loss(
-                symbol=symbol,
-                entry_price=entry_price,
-                direction=direction,
-                timeframe=timeframe,
-                market_type=market_profile.market_type
-            )
-            
-            tp_levels = self.risk_manager.calculate_take_profits(
-                entry_price=entry_price,
-                stop_pips=stop_data["stop_pips"],
-                direction=direction,
-                timeframe=timeframe,
-                symbol=symbol,
-                market_type=market_profile.market_type
-            )
-            
-            trade_plan = {
-                "symbol": symbol,
-                "direction": direction,
-                "timeframe": timeframe.value,
-                "entry_price": entry_price,
-                "stop_loss": stop_data["stop_loss"],
-                "stop_pips": stop_data["stop_pips"],
-                "take_profits": tp_levels
-            }
-            
-            # Send
-            if self.telegram:
-                return self.telegram.send_trade_signal(trade_plan)
             else:
-                logger.error("Telegram not initialized, cannot send signal")
+                logger.warning(f"⚠️ Unknown event type: {event}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error processing webhook: {e}")
+            logger.error(f"❌ Error processing webhook: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
+
 # Initialize bot instance
 bot = TradingBot()
+
 @app.route('/')
 def home():
-    return "Trading Bot Active 🟢", 200
+    return "⚡ Neural ICC AI 2026 • Elite Edition Bot Active 🟢", 200
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if request.method == 'POST':
-        logger.info(f"RAW PAYLOAD: {request.data}")
-        logger.info(f"ContentType: {request.headers.get('Content-Type')}")
+        logger.info(f"📨 RAW PAYLOAD: {request.data}")
+        logger.info(f"📋 ContentType: {request.headers.get('Content-Type')}")
         
-        # Force parsing as JSON even if Content-Type header is missing or wrong
+        # Force parsing as JSON
         try:
             data = request.get_json(force=True, silent=True)
             if not data and request.data:
-                # Fallback: try to parse raw data string manually
                 import json
                 data = json.loads(request.data.decode('utf-8'))
-        except Exception:
+        except Exception as e:
+            logger.error(f"❌ JSON parsing error: {e}")
             return jsonify({"error": "Invalid JSON format"}), 400
             
         if not data:
+            logger.error("❌ No JSON data received")
             return jsonify({"error": "No JSON data received"}), 400
-            
+        
         success = bot.process_webhook(data)
         
         if success:
+            logger.info("✅ Signal processed and sent successfully")
             return jsonify({"status": "success", "message": "Signal processed"}), 200
         else:
-            return jsonify({"status": "ignored", "message": "Signal ignored or failed"}), 200
+            logger.warning("⚠️ Signal processing failed")
+            return jsonify({"status": "failed", "message": "Signal processing failed"}), 200
             
     return jsonify({"error": "Method not allowed"}), 405
+
 def main():
-    # Only for local testing
     port = int(os.environ.get("PORT", 8080))
+    logger.info(f"🚀 Starting Elite Trading Bot on port {port}")
     app.run(host='0.0.0.0', port=port)
+
 if __name__ == "__main__":
     main()
